@@ -1,0 +1,138 @@
+
+#############################################################################
+#
+#  Copyright (c) 2010-12 Andreas Paffenholz
+# 
+#  This program is free software; you can redistribute it and/or modify it
+#  under the terms of the GNU General Public License as published by the
+#  Free Software Foundation; either version 2, or (at your option) any
+#  later version: http://www.gnu.org/licenses/gpl.txt.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+##############################################################################
+
+
+# A bimatrix game
+# defined by two payoff matrices of equal dimension
+# implements computing nash equilibria via polyhedral geometry
+# efficient only for games with positive payoff,
+# for an explanation and extensive theoretical background see e.g. 
+# Bernhard von Stengel, 
+# Equilibrium Games for Two-Player Games in Strategic and Extensive Form
+# in: Nisan et al., Algorithmic Game Theory
+# Cambridge University Press, 2007
+declare object BimatrixGame;
+
+object BimatrixGame {
+
+    # @category Basic properties
+    # the two payoff matrices defining the game
+    # checked for equal row and column dimensions
+    property PAYOFF_MATRICES : Pair<Matrix<Rational>,Matrix<Rational>> {
+
+	method canonical {
+	    my ($this,$P)=@_;
+	    croak ( "dimension mismatch in input matrices" ) unless ($P->first->rows() == $P->second->rows() && $P->first->cols() == $P->second->cols() );
+	}
+    };
+
+    # @category Basic properties
+    # the set of extreme nash equilibria of the game
+    property NASH_EQUILIBRIA : Array<Pair<Vector<Rational>,Vector<Rational>>>;
+
+    # pairs of payoff for first and second player for each extreme nach equilibrium
+    property PAYOFFS : Array<Pair<Rational,Rational>>;
+
+    # @category Basic properties
+    # The connected components among the extreme Nash equilibria
+    # Each set in the output gives the indices of a subset of the 
+    # extreme nash equilibria that form the vertex set of convex polytope 
+    # all of whose points define an equilibrium with equal payoff
+    property CONNECTED_COMPONENTS : PowerSet;
+
+    # @category Associated polyhedra
+    # the best response polyhedron of the first player
+    # defined by 0\le \1u-Ay, 0\le y
+    property FIRST_BEST_RESPONSE_POLYHEDRON : polytope::Polytope<Rational>;
+
+    # @category Associated polyhedra
+    # the best response polyhedron of the second player
+    # defined by 0\le \1v-B^tx, 0\le x
+    property SECOND_BEST_RESPONSE_POLYHEDRON : polytope::Polytope<Rational>;
+
+    # @category Associated polyhedra
+    # the reduced best response polyhedron of the first player
+    # defined by 0\le \1-Ay, y\ge 0
+    # this defines the correct equilibria if and only if the matrices are REDUCED_FEASIBLE
+    property REDUCED_FIRST_BEST_RESPONSE_POLYHEDRON : polytope::Polytope<Rational>;
+
+    # @category Associated polyhedra
+    # the reduced best response polyhedron of the second player
+    # defined by 0\le \1-B1tx, x\ge 0
+    # this defines the correct equilibria if and only if the matrices are REDUCED_FEASIBLE
+    property REDUCED_SECOND_BEST_RESPONSE_POLYHEDRON : polytope::Polytope<Rational>;
+
+    # @category Associated polyhedra
+    # checks whether nash equilibria can be computed with the reduced best response polyhedra
+    # amounts to checking that the systems Ay\le 0, y\ge 0 and B^tx\le 0, x\ge 0 define 0-dimensional cones
+    property REDUCED_FEASIBLE : Bool;
+
+    rule FIRST_BEST_RESPONSE_POLYHEDRON : PAYOFF_MATRICES {
+      $this->FIRST_BEST_RESPONSE_POLYHEDRON = first_best_response_polyhedron($this->PAYOFF_MATRICES->first);
+    }
+
+    rule SECOND_BEST_RESPONSE_POLYHEDRON : PAYOFF_MATRICES {
+      $this->SECOND_BEST_RESPONSE_POLYHEDRON = second_best_response_polyhedron($this->PAYOFF_MATRICES->second);
+    }
+
+    rule REDUCED_FIRST_BEST_RESPONSE_POLYHEDRON : PAYOFF_MATRICES {
+      $this->REDUCED_FIRST_BEST_RESPONSE_POLYHEDRON = reduced_first_best_response_polyhedron($this->PAYOFF_MATRICES->first);
+    }
+
+    rule REDUCED_SECOND_BEST_RESPONSE_POLYHEDRON : PAYOFF_MATRICES {
+      $this->REDUCED_SECOND_BEST_RESPONSE_POLYHEDRON = reduced_second_best_response_polyhedron($this->PAYOFF_MATRICES->second);
+    }
+
+    rule REDUCED_FEASIBLE : PAYOFF_MATRICES {
+      $this->REDUCED_FEASIBLE = reduced_feasible($this->PAYOFF_MATRICES);
+    }
+
+    rule NASH_EQUILIBRIA : PAYOFF_MATRICES {
+      $this->NASH_EQUILIBRIA = nash_equilibria($this->PAYOFF_MATRICES);
+    }
+    weight 4.10;
+    precondition : REDUCED_FEASIBLE;
+
+    rule NASH_EQUILIBRIA : PAYOFF_MATRICES {
+      $this->NASH_EQUILIBRIA = nash_equilibria_by_support_enumeration($this->PAYOFF_MATRICES);
+    }
+    weight 6.10;
+
+    rule CONNECTED_COMPONENTS : NASH_EQUILIBRIA {
+      $this->CONNECTED_COMPONENTS = connected_components($this->NASH_EQUILIBRIA);
+    }
+
+    rule PAYOFFS : NASH_EQUILIBRIA, PAYOFF_MATRICES {
+	my $spo = new Array<Pair<Rational,Rational>>(scalar(@{$this->NASH_EQUILIBRIA}));
+	my $i = 0;
+	foreach my $nash (@{$this->NASH_EQUILIBRIA}) {
+	  my $po = new Pair<Rational,Rational>;
+	  $po->first = max_entry($this->PAYOFF_MATRICES->first*$nash->second);
+	  $po->second = max_entry($nash->first*$this->PAYOFF_MATRICES->second);
+	  $spo->[$i++] = $po;
+	}
+	$this->PAYOFFS = $spo;
+    }
+
+}
+
+sub max_entry {
+  my $v = shift;
+  my $m = $v->[0];
+  foreach my $e (@{$v}) { if ( $e > $m ) { $m = $e; } }
+  return $m;
+}
